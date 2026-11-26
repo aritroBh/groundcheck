@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Groundcheck: Notes-grounding audit for Circleback</title>
+<meta name="description" content="Groundcheck audits Circleback meeting notes against their transcripts: every claim checked, every flag cited to the exact line. Deterministic, no LLM.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23faf8f3'/%3E%3Cpath d='M3 8.5 L6.5 12 L13 4.5' stroke='%23b3261e' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="appbar">
+  <div class="appbar-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="0.75" y="0.75" width="18.5" height="18.5" stroke="#1c1a16" stroke-width="1.5"/><path d="M4.5 10.5 L8.5 14.5 L15.5 6.5" stroke="#b3261e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="brand-name">Groundcheck</span>
+      <span class="brand-sub">Notes audit &middot; Circleback</span>
+    </div>
+    <div class="appbar-right">
+      <span class="sample-pill" title="Bundled fictional meetings. No key, no network.">Sample data</span>
+      <button class="btn" id="runBtn" type="button">Re-run audit</button>
+      <button class="btn primary" id="exportBtn" type="button">Export JSON</button>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="rail" aria-label="Meetings and data source">
+    <section class="rail-section">
+      <h3 class="rail-h">Meetings</h3>
+      <div class="meeting-list" id="meetingList" role="listbox" aria-label="Meetings"></div>
+    </section>
+
+    <section class="rail-section">
+      <h3 class="rail-h">Data source</h3>
+      <div class="source-card active">
+        <div class="source-row"><span class="source-dot on"></span><strong>Sample data</strong><span class="source-tag">active</span></div>
+        <p>3 fictional meetings, bundled. No key, no network calls.</p>
+      </div>
+      <div class="source-card">
+        <div class="source-row"><span class="source-dot"></span><strong>Circleback API</strong></div>
+        <p>The same engine runs on real meetings. Keys are created in Circleback under Settings &rarr; API keys.</p>
+        <pre class="curl">curl \
+https://<wbr>circleback.ai/<wbr>api/<wbr>meetings \
+-H "Authorization: Bearer cb_&hellip;"</pre>
+        <p class="source-fine">Free plan: 20 requests/min. This static demo makes no request; the client is the seam in <span class="mono">data.js</span> (<span class="mono">fetchFromCircleback</span>).</p>
+        <p class="source-fine"><a href="https://circleback.ai/docs/api" target="_blank" rel="noopener">circleback.ai/docs/api</a></p>
+      </div>
+    </section>
+
+    <section class="rail-section">
+      <h3 class="rail-h">How it scores</h3>
+      <ul class="method-list">
+        <li><span class="mono">G-1</span> Content match &ge; 55% of key terms, numbers, dates, owner and speaker all agree.</li>
+        <li><span class="mono">P-1</span> Content matches, but a field disagrees: number, date, owner or speaker.</li>
+        <li><span class="mono">P-2</span> Weak match, 30&ndash;55%: possibly a paraphrase the lexical match missed.</li>
+        <li><span class="mono">U-1</span> No line above 30%: nothing in the transcript supports the claim.</li>
+        <li><span class="mono">R-1</span> A commitment in the transcript (&ldquo;I&rsquo;ll&hellip;&rdquo;, &ldquo;we&rsquo;ll&hellip;&rdquo;, &ldquo;let&rsquo;s&hellip;&rdquo;) with no matching action item.</li>
+        <li><span class="mono">A-1 / A-2</span> Quote attributed to the wrong speaker, or to a speaker under 10% talk share.</li>
+      </ul>
+      <p class="source-fine">Lexical + rules-based matching. No LLM anywhere in this demo.</p>
+    </section>
+  </aside>
+
+  <main class="main">
+    <div class="meeting-head" id="meetingHead"></div>
+    <div class="score-strip" id="scoreStrip"></div>
+    <p class="mobile-note">Sample data: 3 fictional meetings. Flags: check this. <a href="#about">About</a></p>
+
+    <div class="pane-tabs" id="paneTabs" role="tablist" aria-label="Panes">
+      <button class="pane-tab active" data-pane="claims" role="tab" type="button">Claims <span class="tab-count" id="claimsTabCount"></span></button>
+      <button class="pane-tab" data-pane="transcript" role="tab" type="button">Transcript</button>
+    </div>
+
+    <section class="claims-pane" id="claimsPane" aria-label="Audit results">
+      <div class="filter-row" id="filterRow" role="group" aria-label="Filter claims by verdict"></div>
+      <div class="claims" id="claimsList"></div>
+      <div class="missed" id="missedSection"></div>
+    </section>
+
+        <details class="mobile-how">
+      <summary>How it scores</summary>
+      <ul class="method-list">
+        <li><span class="mono">G-1</span> Content match &ge; 55% of key terms, numbers, dates, owner and speaker all agree.</li>
+        <li><span class="mono">P-1</span> Content matches, but a field disagrees: number, date, owner or speaker.</li>
+        <li><span class="mono">P-2</span> Weak match, 30&ndash;55%: possibly a paraphrase the lexical match missed.</li>
+        <li><span class="mono">U-1</span> No line above 30%: nothing in the transcript supports the claim.</li>
+        <li><span class="mono">R-1</span> A commitment in the transcript with no matching action item.</li>
+        <li><span class="mono">A-1 / A-2</span> Quote attributed to the wrong speaker, or to a speaker under 10% talk share.</li>
+      </ul>
+      <p class="source-fine">Lexical + rules-based matching. No LLM anywhere in this demo.</p>
+    </details>
+
+    <footer class="foot">
+      <p class="foot-why"><strong>Why this exists.</strong> Circleback&rsquo;s Oct 20 post, <a href="https://circleback.ai/blog/how-circleback-writes-meeting-notes" target="_blank" rel="noopener">&ldquo;How Circleback Writes Meeting Notes and How to Check Them&rdquo;</a>, tells users to verify notes by hand in four manual steps, and warns to &ldquo;check the speaker names before you forward an attributed quote or action item.&rdquo; Groundcheck automates that check.</p>
+      <details class="foot-about" id="about">
+        <summary>About this demo &amp; its limits</summary>
+        <div class="foot-about-body">
+          <p>The three meetings are fictional, written so every check has something real to find and something real to pass. Matching is lexical and rules-based: token overlap plus checks on numbers, dates, owners and speakers. Paraphrases can slip past it, so a true claim worded very differently may read PARTIAL, and a flag means &ldquo;check this,&rdquo; not &ldquo;wrong.&rdquo; It cannot judge meaning, tone, or whether a decision was wise. It needs the transcript: meetings whose transcripts were deleted under retention settings cannot be audited. A production version would add an LLM judge with a labeled eval set; this is the deterministic floor that eval set would be built on.</p>
+          <p>Built by Aritro Bhattacharjee, UIUC CS + Math, for Circleback&rsquo;s Summer 2027 Software Engineering Intern role. Not affiliated with Circleback.</p>
+        </div>
+      </details>
+    </footer>
+  </main>
+
+  <aside class="transcript-pane" id="transcriptPane" aria-label="Transcript">
+    <div class="transcript-head">
+      <h2>Transcript</h2>
+      <span class="transcript-meta mono" id="transcriptMeta"></span>
+    </div>
+    <p class="transcript-note" id="transcriptNote"></p>
+    <div class="transcript-lines" id="transcriptLines"></div>
+  </aside>
+</div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
